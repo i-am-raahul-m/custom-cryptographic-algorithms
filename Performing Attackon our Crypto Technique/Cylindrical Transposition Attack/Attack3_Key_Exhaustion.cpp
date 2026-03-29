@@ -67,8 +67,10 @@ vector<string> partialDecrypt(const string &ctIn, int rows) {
             hs[j][i] = ct[idx++];
     for (int i = circ-1; i >= 0; i--) {
         int k = (circ/2 + i) % circ;
-        for (int j = rows-1; j >= 0; j--)
-            swap(hs[i][j], hs[k][rows-j-1]);
+        if (i < k) {
+            for (int j = rows-1; j >= 0; j--)
+                swap(hs[i][j], hs[k][rows-j-1]);
+        }
     }
     vector<string> cs(rows, string(circ,' '));
     for (int i = 0; i < rows; i++)

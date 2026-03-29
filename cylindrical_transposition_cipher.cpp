@@ -104,8 +104,11 @@ string encrypt(string pt, vector<int> &keys) {
     // 4. Scramble Logic (swap rows/cols diagonally)
     int k = circ / 2;
     for (int i = 0; i < circ; i++) {
-        for (int j = 0; j < rows; j++) {
-            swap(height_strings[i][j], height_strings[k][rows - j - 1]);
+        // Only swap if i < k to prevent identity transformation when circ is even.
+        if (i < k) {
+            for (int j = 0; j < rows; j++) {
+                swap(height_strings[i][j], height_strings[k][rows - j - 1]);
+            }
         }
         k = (k + 1) % circ;
     }
@@ -147,8 +150,10 @@ string decrypt(string ct, vector<int> &keys) {
     // 2. Inverse of scramble: replay swaps in reverse order.
     for (int i = circ - 1; i >= 0; i--) {
         int k = (circ / 2 + i) % circ;
-        for (int j = rows - 1; j >= 0; j--) {
-            swap(height_strings[i][j], height_strings[k][rows - j - 1]);
+        if (i < k) {
+            for (int j = rows - 1; j >= 0; j--) {
+                swap(height_strings[i][j], height_strings[k][rows - j - 1]);
+            }
         }
     }
 
