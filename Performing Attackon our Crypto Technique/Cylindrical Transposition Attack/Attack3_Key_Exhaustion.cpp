@@ -18,6 +18,7 @@
 #include <limits>
 #include <map>
 #include <functional>
+#include "../../scoring.h"
 using namespace std;
 
 // English letter frequencies
@@ -91,46 +92,28 @@ string applyShifts(const vector<string> &cs, int rows, int circ, const vector<in
     return result;
 }
 
-// Scoring (lower = better; penalties for non-English)
+// Scoring (higher = better English match)
 double score(const string &s) {
-    if (s.empty()) return 1e9;
+    if (s.empty()) return -1e18;
 
-    // Chi-squared on letters
-    int counts[26] = {};
     int letters = 0, spaces = 0, nonPrint = 0;
     for (unsigned char c : s) {
-        if (c >= 'a' && c <= 'z') { counts[c-'a']++; letters++; }
-        else if (c >= 'A' && c <= 'Z') { counts[c-'A']++; letters++; }
+        if (isalpha(c)) letters++;
         else if (c == ' ') spaces++;
         else if (c < 32 || c > 126) nonPrint++;
     }
 
-    double chi2 = 0.0;
-    if (letters > 0)
-        for (int i = 0; i < 26; i++) {
-            double exp = EN_FREQ[i] * letters;
-            double diff = counts[i] - exp;
-            chi2 += diff * diff / (exp > 0 ? exp : 1);
-        }
+    // Quadgram scoring is modern and effective for transposition/polyalphabetic ciphers
+    double fitness = scoring::evaluateFitness(s);
 
     // Space ratio penalty (English ~14%)
     double spaceRatio = (double)spaces / s.length();
-    double spacePenalty = abs(spaceRatio - 0.14) * 50.0;
-
-    // Bigram reward
-    string low = s;
-    for (char &c : low) c = tolower(c);
-    double bigramReward = 0.0;
-    for (int i = 0; i + 1 < (int)low.size(); i++) {
-        string bg = low.substr(i, 2);
-        auto it = BIGRAM_REWARD.find(bg);
-        if (it != BIGRAM_REWARD.end()) bigramReward += it->second;
-    }
+    double spacePenalty = abs(spaceRatio - 0.14) * 200.0;
 
     // Non-printable penalty
-    double nonPrintPenalty = nonPrint * 200.0;
+    double nonPrintPenalty = nonPrint * 1000.0;
 
-    return chi2 + spacePenalty - bigramReward * 10.0 + nonPrintPenalty;
+    return fitness - spacePenalty - nonPrintPenalty;
 }
 
 struct Result {
@@ -138,11 +121,11 @@ struct Result {
     int rows;
     vector<int> shifts;
     string decrypted;
-    bool operator<(const Result &o) const { return sc < o.sc; }
+    bool operator<(const Result &o) const { return sc > o.sc; }
 };
 
 
-int main() {
+int main(int argc, char* argv[]) {
     string ct;
     cout << "=== Key Exhaustion (Brute Force) Attack ===" << endl;
     cout << "Enter ciphertext: ";
@@ -151,10 +134,12 @@ int main() {
     int ctLen = ct.length();
     if (ctLen == 0) { cout << "Empty ciphertext.\n"; return 1; }
 
-    // User-configurable limits to prevent combinatorial explosion
-    int MAX_ROWS         = 6;    // Try rows up to this value
-    long long MAX_KEYS   = 500000; // Hard cap on keys per (rows) value
-    int TOP_N            = 5;    // Report top N results
+    int MAX_ROWS         = 6;
+    long long MAX_KEYS   = 500000;
+    int TOP_N            = 5;
+
+    if (argc >= 2) MAX_ROWS = atoi(argv[1]);
+    if (argc >= 3) MAX_KEYS = atoll(argv[2]);
 
     cout << "Config: MAX_ROWS=" << MAX_ROWS
          << ", MAX_KEYS_PER_ROWS=" << MAX_KEYS
@@ -185,13 +170,13 @@ int main() {
         // Then enumerate neighbours around those best shifts for refinement.
         vector<int> bestSingleShifts(rows);
         for (int i = 0; i < rows; i++) {
-            double rowBest = 1e18; int bS = 0;
+            double rowBest = -1e18; int bS = 0;
             for (int s = 0; s < circ; s++) {
                 string test = cs[i];
                 int inv = ((circ - s) % circ + circ) % circ;
                 rotateStr(test, inv);
                 double sc2 = score(test);
-                if (sc2 < rowBest) { rowBest = sc2; bS = s; }
+                if (sc2 > rowBest) { rowBest = sc2; bS = s; }
             }
             bestSingleShifts[i] = bS;
         }

@@ -16,6 +16,7 @@
 #include <map>
 #include <cmath>
 #include <limits>
+#include "../../scoring.h"
 using namespace std;
 
 const double EN_FREQ[26] = {
@@ -104,12 +105,13 @@ double indexOfCoincidence(const string &s) {
     return ic / ((double)total * (total - 1));
 }
 
-// Combined fitness (lower = better)
+// Combined fitness (higher = better English match)
 double fitness(const string &s) {
     // Penalise non-printable chars heavily
     int nonPrint = 0;
     for (char c : s) if (c < 32 && c != '\n' && c != '\t') nonPrint++;
-    return chiSquared(s) + nonPrint * 100.0;
+    // Quadgram scoring is order-sensitive and superior to unigrams
+    return scoring::evaluateFitness(s) - nonPrint * 1000.0;
 }
 
 // Full decrypt given rows + shifts
@@ -139,7 +141,7 @@ int main() {
     int ctLen = ct.length();
     if (ctLen == 0) { cout << "Empty ciphertext.\n"; return 1; }
 
-    double bestScore = numeric_limits<double>::max();
+    double bestScore = -numeric_limits<double>::max();
     int bestRows = -1;
     vector<int> bestShifts;
     string bestDecrypted;
@@ -156,13 +158,13 @@ int main() {
         double totalScore = 0.0;
 
         for (int i = 0; i < rows; i++) {
-            double rowBest = numeric_limits<double>::max();
+            double rowBest = -numeric_limits<double>::max();
             int bestS = 0;
             for (int s = 0; s < circ; s++) {
                 string test = cs[i];
                 rotateStr(test, (circ - s) % circ);
                 double sc = fitness(test);
-                if (sc < rowBest) { rowBest = sc; bestS = s; }
+                if (sc > rowBest) { rowBest = sc; bestS = s; }
             }
             shifts[i] = bestS;
             totalScore += rowBest;
@@ -171,7 +173,7 @@ int main() {
         // Normalise by number of rows
         double avgScore = totalScore / rows;
 
-        if (avgScore < bestScore) {
+        if (avgScore > bestScore) {
             bestScore  = avgScore;
             bestRows   = rows;
             bestShifts = shifts;
@@ -181,19 +183,19 @@ int main() {
 
     if (bestRows == -1) { cout << "[-] Analysis failed.\n"; return 1; }
 
-    cout << "\n[+] BEST KEY GUESS (lowest chi-squared fitness):" << endl;
+    cout << "\n[+] BEST KEY GUESS (highest quadgram fitness):" << endl;
     cout << "Key vector: {" << bestRows;
     for (int s : bestShifts) cout << ", " << s;
     cout << "}" << endl;
-    cout << "Average chi-squared score: " << bestScore << endl;
+    cout << "Average quadgram score: " << bestScore << endl;
 
     cout << "\n[+] DECRYPTED TEXT:" << endl;
     cout << bestDecrypted << endl;
 
     // Show top 5 candidates by rows value
     cout << "\n[*] Top candidates per 'rows' value:" << endl;
-    cout << "rows | avg_chi2 | decrypted_preview" << endl;
-    cout << "-----+----------+------------------------------------------" << endl;
+    cout << "rows | avg_score | decrypted_preview" << endl;
+    cout << "-----+-----------+------------------------------------------" << endl;
 
     vector<pair<double,int>> candidates;
     for (int rows = 1; rows <= ctLen; rows++) {
@@ -203,20 +205,20 @@ int main() {
         double totalScore = 0.0;
         vector<int> shifts(rows, 0);
         for (int i = 0; i < rows; i++) {
-            double rowBest = 1e18;
+            double rowBest = -1e18;
             int bestS = 0;
             for (int s = 0; s < circ; s++) {
                 string test = cs[i];
                 rotateStr(test, (circ - s) % circ);
                 double sc = fitness(test);
-                if (sc < rowBest) { rowBest = sc; bestS = s; }
+                if (sc > rowBest) { rowBest = sc; bestS = s; }
             }
             shifts[i] = bestS;
             totalScore += rowBest;
         }
         candidates.push_back({totalScore / rows, rows});
     }
-    sort(candidates.begin(), candidates.end());
+    sort(candidates.rbegin(), candidates.rend());
 
     int shown = 0;
     for (auto &[sc, r] : candidates) {
@@ -225,18 +227,18 @@ int main() {
         vector<string> cs = partialDecrypt(ct, r);
         vector<int> sh(r, 0);
         for (int i = 0; i < r; i++) {
-            double rowBest = 1e18; int bestS = 0;
+            double rowBest = -1e18; int bestS = 0;
             for (int s = 0; s < circ; s++) {
                 string test = cs[i];
                 rotateStr(test, (circ - s) % circ);
                 double scc = fitness(test);
-                if (scc < rowBest) { rowBest = scc; bestS = s; }
+                if (scc > rowBest) { rowBest = scc; bestS = s; }
             }
             sh[i] = bestS;
         }
         string dec = fullDecrypt(ct, r, sh);
         string preview = dec.length() > 40 ? dec.substr(0, 40) + "..." : dec;
-        printf("%4d | %8.2f | %s\n", r, sc, preview.c_str());
+        printf("%4d | %9.2f | %s\n", r, sc, preview.c_str());
     }
 
     return 0;
